@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"os"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -494,7 +495,9 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 			p.ErrorPage(rw, 500, "Internal Error", "Internal Error")
 			return
 		}
-		http.Redirect(rw, req, redirect, 302)
+		jwt := makeJWT(session.AccessToken, session.RefreshToken)
+		log.Printf("%s?jwt=%s", redirect, jwt)
+		http.Redirect(rw, req, redirect + "?jwt=" + jwt, 302)
 	} else {
 		log.Printf("%s Permission Denied: %q is unauthorized", remoteAddr, session.Email)
 		p.ErrorPage(rw, 403, "Permission Denied", "Invalid Account")
@@ -504,6 +507,9 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 func (p *OAuthProxy) AuthenticateOnly(rw http.ResponseWriter, req *http.Request) {
 	status := p.Authenticate(rw, req)
 	if status == http.StatusAccepted {
+		session, _, _ := p.LoadCookiedSession(req)
+		rw.Header().Set("X-Forwarded-Access-Token", session.AccessToken)
+		rw.Header().Set("X-Forwarded-Refresh-Token", session.RefreshToken)
 		rw.WriteHeader(http.StatusAccepted)
 	} else {
 		http.Error(rw, "unauthorized request", http.StatusUnauthorized)
