@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html/template"
 	"log"
-	"os"
 	"net"
 	"net/http"
 	"net/http/httputil"
