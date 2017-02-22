@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"os"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -656,12 +657,12 @@ func makeJWT(accessToken string, refreshToken string) (string) {
 		refreshToken,
 		jwt.StandardClaims {
 			ExpiresAt: expireToken,
-			Issuer: "lvh.me",
+			Issuer: os.Getenv("OAUTH2_PROXY_JWT_DOMAIN"),
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signedToken, _ := token.SignedString([]byte("secret"))
+	signedToken, _ := token.SignedString([]byte(os.Getenv("OAUTH2_PROXY_JWT_SECRET")))
 	return signedToken
 }
 
