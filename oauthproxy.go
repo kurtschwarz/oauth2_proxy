@@ -17,6 +17,8 @@ import (
 	"github.com/18F/hmacauth"
 	"github.com/bitly/oauth2_proxy/cookie"
 	"github.com/bitly/oauth2_proxy/providers"
+
+	jwt "github.com/dgrijalva/jwt-go"
 )
 
 const SignatureHeader = "GAP-Signature"
@@ -73,6 +75,12 @@ type UpstreamProxy struct {
 	upstream string
 	handler  http.Handler
 	auth     hmacauth.HmacAuth
+}
+
+type JWTClaims struct {
+	AccessToken string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+	jwt.StandardClaims
 }
 
 func (u *UpstreamProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -504,6 +512,8 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 func (p *OAuthProxy) AuthenticateOnly(rw http.ResponseWriter, req *http.Request) {
 	status := p.Authenticate(rw, req)
 	if status == http.StatusAccepted {
+		session, _, _ := p.LoadCookiedSession(req)
+		rw.Header().Set("X-Forwarded-JWT", makeJWT(session.AccessToken, session.RefreshToken))
 		rw.WriteHeader(http.StatusAccepted)
 	} else {
 		http.Error(rw, "unauthorized request", http.StatusUnauthorized)
@@ -639,3 +649,21 @@ func (p *OAuthProxy) CheckBasicAuth(req *http.Request) (*providers.SessionState,
 	}
 	return nil, fmt.Errorf("%s not in HtpasswdFile", pair[0])
 }
+
+func makeJWT(accessToken string, refreshToken string) (string) {
+	expireToken := time.Now().Add(time.Hour * 1).Unix()
+
+	claims := JWTClaims {
+		accessToken,
+		refreshToken,
+		jwt.StandardClaims {
+			ExpiresAt: expireToken,
+			Issuer: "lvh.me",
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signedToken, _ := token.SignedString([]byte("secret"))
+	return signedToken
+}
+
