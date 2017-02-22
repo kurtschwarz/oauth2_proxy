@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"os"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -17,6 +18,8 @@ import (
 	"github.com/18F/hmacauth"
 	"github.com/bitly/oauth2_proxy/cookie"
 	"github.com/bitly/oauth2_proxy/providers"
+
+	jwt "github.com/dgrijalva/jwt-go"
 )
 
 const SignatureHeader = "GAP-Signature"
@@ -73,6 +76,12 @@ type UpstreamProxy struct {
 	upstream string
 	handler  http.Handler
 	auth     hmacauth.HmacAuth
+}
+
+type JWTClaims struct {
+	AccessToken string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+	jwt.StandardClaims
 }
 
 func (u *UpstreamProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -494,7 +503,9 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 			p.ErrorPage(rw, 500, "Internal Error", "Internal Error")
 			return
 		}
-		http.Redirect(rw, req, redirect, 302)
+		jwt := makeJWT(session.AccessToken, session.RefreshToken)
+		log.Printf("%s?jwt=%s", redirect, jwt)
+		http.Redirect(rw, req, redirect + "?jwt=" + jwt, 302)
 	} else {
 		log.Printf("%s Permission Denied: %q is unauthorized", remoteAddr, session.Email)
 		p.ErrorPage(rw, 403, "Permission Denied", "Invalid Account")
@@ -504,6 +515,8 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 func (p *OAuthProxy) AuthenticateOnly(rw http.ResponseWriter, req *http.Request) {
 	status := p.Authenticate(rw, req)
 	if status == http.StatusAccepted {
+		session, _, _ := p.LoadCookiedSession(req)
+		rw.Header().Set("X-Forwarded-JWT", makeJWT(session.AccessToken, session.RefreshToken))
 		rw.WriteHeader(http.StatusAccepted)
 	} else {
 		http.Error(rw, "unauthorized request", http.StatusUnauthorized)
@@ -639,3 +652,21 @@ func (p *OAuthProxy) CheckBasicAuth(req *http.Request) (*providers.SessionState,
 	}
 	return nil, fmt.Errorf("%s not in HtpasswdFile", pair[0])
 }
+
+func makeJWT(accessToken string, refreshToken string) (string) {
+	expireToken := time.Now().Add(time.Hour * 1).Unix()
+
+	claims := JWTClaims {
+		accessToken,
+		refreshToken,
+		jwt.StandardClaims {
+			ExpiresAt: expireToken,
+			Issuer: os.Getenv("OAUTH2_PROXY_JWT_DOMAIN"),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signedToken, _ := token.SignedString([]byte(os.Getenv("OAUTH2_PROXY_JWT_SECRET")))
+	return signedToken
+}
+
