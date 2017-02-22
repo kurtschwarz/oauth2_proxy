@@ -495,9 +495,7 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 			p.ErrorPage(rw, 500, "Internal Error", "Internal Error")
 			return
 		}
-		jwt := makeJWT(session.AccessToken, session.RefreshToken)
-		log.Printf("%s?jwt=%s", redirect, jwt)
-		http.Redirect(rw, req, redirect + "?jwt=" + jwt, 302)
+		http.Redirect(rw, req, redirect, 302)
 	} else {
 		log.Printf("%s Permission Denied: %q is unauthorized", remoteAddr, session.Email)
 		p.ErrorPage(rw, 403, "Permission Denied", "Invalid Account")
